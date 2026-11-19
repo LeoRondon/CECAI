@@ -1,105 +1,51 @@
-import json
-import requests
-import math
+"""Command-line CEC Assistant.
 
-
-def embed(text):
-    response = requests.post(
-        "http://localhost:11434/api/embed",
-        json={
-            "model": "nomic-embed-text",
-            "input": text
-        }
-    )
-    return response.json()["embeddings"][0]
-
-
-def cosine_similarity(a, b):
-    dot = sum(x * y for x, y in zip(a, b))
-    mag_a = math.sqrt(sum(x * x for x in a))
-    mag_b = math.sqrt(sum(x * x for x in b))
-
-    return dot / (mag_a * mag_b)
-
-
-with open("cec_embeddings.json", "r", encoding="utf-8") as f:
-    rules = json.load(f)
-
-
-question = input("CEC Question: ")
-
-question_embedding = embed(question)
-
-results = []
-
-for rule in rules:
-    similarity = cosine_similarity(
-        question_embedding,
-        rule["embedding"]
-    )
-
-    results.append((similarity, rule))
-
-
-results.sort(reverse=True, key=lambda x: x[0])
-
-top_rules = results[:5]
-
-
-context = ""
-
-for similarity, rule in top_rules:
-    context += f"""
-Rule {rule['rule']} — {rule['title']}
-
-{rule['text']}
-
+Usage:
+    python cec_ai.py "What size grounding conductor is required?"
+    python cec_ai.py            # prompts for a question
 """
 
+from __future__ import annotations
 
-prompt = f"""
-You are a Canadian Electrical Code assistant.
+import argparse
+import sys
 
-Answer the user's question using ONLY the CEC material provided below.
-
-IMPORTANT RULES:
-
-1. Do not use outside electrical knowledge.
-2. Do not invent requirements, numbers, exceptions, definitions, or rule references.
-3. Do not infer that a retrieved rule contains a requirement unless that requirement is explicitly present in the supplied text.
-4. Prefer the rule that directly answers the question over rules that are merely related.
-5. When describing an exception, state only what the supplied CEC text actually says.
-6. Identify the specific CEC rule number that supports each important requirement.
-7. If the supplied material does not contain enough information to answer confidently, say so.
-8. Do not cite a rule simply because it was retrieved. Cite it only if its supplied text supports the statement.
-Do not invent requirements, numbers, exceptions, or rules.
-
-CEC material:
-
-{context}
-
-User question:
-
-{question}
-"""
+from cec import ollama
+from cec.config import settings
+from cec.prompts import build_prompt
+from cec.retrieval import RuleIndex
 
 
-response = requests.post(
-    "http://localhost:11434/api/generate",
-    json={
-        "model": "qwen3:8b",
-        "prompt": prompt,
-        "stream": False
-    }
-)
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Ask the Canadian Electrical Code.")
+    parser.add_argument("question", nargs="*", help="question to ask")
+    parser.add_argument("-k", "--top-k", type=int, default=settings.top_k, help="rules to retrieve")
+    parser.add_argument("-m", "--model", default=settings.chat_model, help="Ollama chat model")
+    args = parser.parse_args()
 
-data = response.json()
+    question = " ".join(args.question) or input("CEC Question: ")
+    if not question.strip():
+        parser.error("please provide a question")
 
-print("\n" + "=" * 70)
-print("CEC ASSISTANT")
-print("=" * 70)
-print(data["response"])
+    try:
+        matches = RuleIndex.load().search(question, args.top_k)
+        print("\n" + "=" * 70 + "\nCEC ASSISTANT\n" + "=" * 70)
+        started = False
+        for chunk in ollama.generate_stream(build_prompt(question, matches), args.model):
+            if chunk.kind == "answer":
+                text = chunk.text if started else chunk.text.lstrip()
+                started = started or bool(text)
+                print(text, end="", flush=True)
+        print()
+    except ollama.OllamaError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
-print("\nRelevant rules:")
-for similarity, rule in top_rules:
-    print(f"- {rule['rule']} — {rule['title']} ({similarity:.3f})")
+    print("\nRelevant rules:")
+    for m in matches:
+        print(f"- {m.rule.rule} — {m.rule.title} ({m.score:.3f})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

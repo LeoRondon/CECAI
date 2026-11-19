@@ -1,66 +1,59 @@
+"""Embed every rule in cec_rules.json and save the result to cec_embeddings.json.
+
+Embeddings from a previous build are reused when a rule's text is unchanged,
+so only new or edited rules are sent to the embedding model.
+"""
+
+from __future__ import annotations
+
 import json
-import requests
+import sys
 import time
 
-INPUT_FILE = "cec_rules.json"
-OUTPUT_FILE = "cec_embeddings.json"
+from cec import ollama
+from cec.config import settings
 
-with open(INPUT_FILE, "r", encoding="utf-8") as f:
-    rules = json.load(f)
 
-# Reuse embeddings from the previous build when a rule's text is unchanged,
-# so only new or edited rules are sent to the embedding model.
-cache = {}
-try:
-    with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
-        for old in json.load(f):
-            cache[(old["rule"], old["title"], old["text"])] = old["embedding"]
-except (FileNotFoundError, json.JSONDecodeError):
-    pass
+def main() -> int:
+    with open(settings.rules_file, encoding="utf-8") as f:
+        rules = json.load(f)
 
-results = []
-reused = 0
+    cache: dict[tuple[str, str, str], list[float]] = {}
+    try:
+        with open(settings.embeddings_file, encoding="utf-8") as f:
+            for old in json.load(f):
+                cache[(old["rule"], old["title"], old["text"])] = old["embedding"]
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
 
-start = time.time()
+    results = []
+    reused = 0
+    start = time.time()
 
-for i, rule in enumerate(rules, 1):
-    text = f"{rule['rule']} {rule['title']} {rule['text']}"
+    try:
+        for i, rule in enumerate(rules, 1):
+            key = (rule["rule"], rule["title"], rule["text"])
+            embedding = cache.get(key)
+            if embedding is not None:
+                reused += 1
+            else:
+                embedding = ollama.embed_one(f"{rule['rule']} {rule['title']} {rule['text']}")
+            results.append(
+                {"rule": rule["rule"], "title": rule["title"], "text": rule["text"], "embedding": embedding}
+            )
+            if i % 100 == 0:
+                print(f"Processed {i}/{len(rules)} rules")
+    except ollama.OllamaError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
-    key = (rule["rule"], rule["title"], rule["text"])
-    if key in cache:
-        results.append({
-            "rule": rule["rule"],
-            "title": rule["title"],
-            "text": rule["text"],
-            "embedding": cache[key]
-        })
-        reused += 1
-        continue
+    with open(settings.embeddings_file, "w", encoding="utf-8") as f:
+        json.dump(results, f)
 
-    response = requests.post(
-        "http://localhost:11434/api/embed",
-        json={
-            "model": "nomic-embed-text",
-            "input": text
-        }
-    )
+    print(f"\nFinished in {time.time() - start:.1f} seconds ({reused} reused)")
+    print(f"Saved to {settings.embeddings_file}")
+    return 0
 
-    embedding = response.json()["embeddings"][0]
 
-    results.append({
-        "rule": rule["rule"],
-        "title": rule["title"],
-        "text": rule["text"],
-        "embedding": embedding
-    })
-
-    if i % 100 == 0:
-        print(f"Processed {i}/{len(rules)} rules")
-
-with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-    json.dump(results, f)
-
-elapsed = time.time() - start
-
-print(f"\nFinished in {elapsed:.1f} seconds")
-print(f"Saved to {OUTPUT_FILE}")
+if __name__ == "__main__":
+    sys.exit(main())

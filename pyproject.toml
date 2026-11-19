@@ -1,0 +1,17 @@
+[project]
+name = "cec-assistant"
+version = "0.2.0"
+description = "Ask questions about the Canadian Electrical Code, answered from the rule text with a local LLM."
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]  # long lines in prompts / test data are fine
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

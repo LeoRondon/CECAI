@@ -1,2 +1,6 @@
 /pdf/CEC21.pdf
 /pdf/cec.txt
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/

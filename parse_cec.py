@@ -1,8 +1,12 @@
-import re
-import json
+"""Parse the CEC plain-text export (pdf/cec.txt) into cec_rules.json."""
 
-INPUT_FILE = "pdf/cec.txt"
-OUTPUT_FILE = "cec_rules.json"
+import json
+import re
+
+from cec.config import settings
+
+INPUT_FILE = settings.cec_text_file
+OUTPUT_FILE = settings.rules_file
 
 # Rule numbers have a 1- or 2-digit section (0, 2, 4, 6, 8, 10, 12 ... 86)
 rule_pattern = re.compile(r"^(\d{1,2}-\d{3}) ([A-Z].*)$")
@@ -15,7 +19,7 @@ definition_pattern = re.compile(r"^([A-Z][^—]{0,100}?) —( .*)?$")
 
 rules = []
 
-with open(INPUT_FILE, "r", encoding="utf-8", errors="ignore") as f:
+with open(INPUT_FILE, encoding="utf-8", errors="ignore") as f:
     lines = f.readlines()
 
 current_rule = None
