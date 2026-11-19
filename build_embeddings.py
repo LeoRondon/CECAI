@@ -8,12 +8,34 @@ OUTPUT_FILE = "cec_embeddings.json"
 with open(INPUT_FILE, "r", encoding="utf-8") as f:
     rules = json.load(f)
 
+# Reuse embeddings from the previous build when a rule's text is unchanged,
+# so only new or edited rules are sent to the embedding model.
+cache = {}
+try:
+    with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+        for old in json.load(f):
+            cache[(old["rule"], old["title"], old["text"])] = old["embedding"]
+except (FileNotFoundError, json.JSONDecodeError):
+    pass
+
 results = []
+reused = 0
 
 start = time.time()
 
 for i, rule in enumerate(rules, 1):
     text = f"{rule['rule']} {rule['title']} {rule['text']}"
+
+    key = (rule["rule"], rule["title"], rule["text"])
+    if key in cache:
+        results.append({
+            "rule": rule["rule"],
+            "title": rule["title"],
+            "text": rule["text"],
+            "embedding": cache[key]
+        })
+        reused += 1
+        continue
 
     response = requests.post(
         "http://localhost:11434/api/embed",
