@@ -4,7 +4,14 @@ import json
 INPUT_FILE = "pdf/cec.txt"
 OUTPUT_FILE = "cec_rules.json"
 
-rule_pattern = re.compile(r"^(\d{2}-\d{3}) ([A-Z].*)$")
+# Rule numbers have a 1- or 2-digit section (0, 2, 4, 6, 8, 10, 12 ... 86)
+rule_pattern = re.compile(r"^(\d{1,2}-\d{3}) ([A-Z].*)$")
+
+# Section 0 has no numbered rules: it is "Object", "Scope" and a list of
+# "Term — meaning" definitions. These patterns let us index it too.
+SECTION0_START = "Object (see Appendix B)"
+section0_heading_pattern = re.compile(r"^(Object|Scope|Definitions)( \(see Appendix B\))?$")
+definition_pattern = re.compile(r"^([A-Z][^—]{0,100}?) —( .*)?$")
 
 rules = []
 
@@ -13,6 +20,13 @@ with open(INPUT_FILE, "r", encoding="utf-8", errors="ignore") as f:
 
 current_rule = None
 skip_next_line = False
+in_section0 = False
+in_definitions = False
+
+
+def new_entry(section, rule, title):
+    return {"section": section, "rule": rule, "title": title, "text": []}
+
 
 for i, line in enumerate(lines):
     line = line.rstrip()
@@ -27,6 +41,7 @@ for i, line in enumerate(lines):
     match = rule_pattern.match(line)
 
     if match:
+        in_section0 = False
         if current_rule:
             rules.append(current_rule)
 
@@ -39,14 +54,36 @@ for i, line in enumerate(lines):
             title += " " + next_line
             skip_next_line = True
 
-        current_rule = {
-            "section": rule_number.split("-")[0],
-            "rule": rule_number,
-            "title": title,
-            "text": []
-        }
+        current_rule = new_entry(rule_number.split("-")[0], rule_number, title)
+        continue
 
-    elif current_rule:
+    # Section 0 begins at the body's "Object" heading and ends at the first
+    # numbered rule (2-000).
+    if not rules and current_rule is None and line == SECTION0_START:
+        in_section0 = True
+
+    if in_section0:
+        heading = section0_heading_pattern.match(line)
+        definition = definition_pattern.match(line) if in_definitions else None
+
+        if heading:
+            if current_rule:
+                rules.append(current_rule)
+            name = heading.group(1)
+            in_definitions = name == "Definitions"
+            current_rule = new_entry("0", "Section 0", name)
+            continue
+
+        if definition and not line.startswith("Section "):
+            if current_rule:
+                rules.append(current_rule)
+            term = definition.group(1).strip()
+            current_rule = new_entry("0", "Section 0", f"Definition: {term}")
+            rest = (definition.group(2) or "").strip()
+            current_rule["text"].append(f"{term} — {rest}".rstrip(" —"))
+            continue
+
+    if current_rule:
         current_rule["text"].append(line)
 
 if current_rule:
