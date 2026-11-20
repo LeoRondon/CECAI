@@ -32,6 +32,20 @@ st.markdown(
         background: rgba(245, 158, 11, .15); color: inherit; white-space: nowrap;
       }
       div[data-testid="stExpander"] details summary p { font-size: .92rem; }
+
+      /* Keep LLM output inside the window: wrap long lines instead of overflowing. */
+      [data-testid="stChatMessage"],
+      [data-testid="stChatMessageContent"] { min-width: 0; max-width: 100%; }
+      [data-testid="stChatMessageContent"] {
+        overflow-wrap: anywhere; word-break: break-word;
+      }
+      [data-testid="stChatMessageContent"] pre,
+      [data-testid="stChatMessageContent"] pre code {
+        white-space: pre-wrap !important; overflow-wrap: anywhere; word-break: break-word;
+      }
+      [data-testid="stChatMessageContent"] table {
+        display: block; max-width: 100%; overflow-x: auto;
+      }
     </style>
     """,
     unsafe_allow_html=True,
